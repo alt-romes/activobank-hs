@@ -11,7 +11,7 @@ cabal-version:      3.0
 --   http://haskell.org/cabal/users-guide/
 --
 -- The name of the package.
-name:               activobank-scraper
+name:               activobank-hs
 
 -- The package version.
 -- See the Haskell package versioning policy (PVP) for standards
@@ -82,7 +82,7 @@ executable ab-main
 
     -- Other library packages from which modules are imported.
     build-depends:    base >=4.14,
-                      activobank-scraper,
+                      activobank-hs,
                       servant,
                       servant-server,
                       warp,
