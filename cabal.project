@@ -1,5 +1,5 @@
 source-repository-package
     type: git
-    location: git@github.com:alt-romes/cob-hs.git
+    location: https://github.com/alt-romes/cob-hs.git
 
 packages: .
