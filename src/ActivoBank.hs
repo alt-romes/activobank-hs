@@ -55,8 +55,8 @@ import qualified Servant.Client as C
 -- | A 'Movement' describes a transaction with ActivoBank
 data Movement = Mov { movDay  :: Day    -- ^ Movement day
                     , movDesc :: String -- ^ Description
-                    , movAmt  :: String -- ^ Amount
-                    , movBal  :: String -- ^ Balance
+                    , movAmt  :: Double -- ^ Amount
+                    , movBal  :: Double -- ^ Balance
                     }
                 deriving Show
 
@@ -110,7 +110,7 @@ fetchMovementsTable = do
     today <- utctDay <$> liftIO getCurrentTime
 
     -- Get movements using set cookies
-    getMovements (MovementsRequest (addDays (-5) today) today)
+    getMovements (MovementsRequest (addDays (-1) today) today)
 
 
 -- * ActivoBank API
@@ -146,6 +146,7 @@ instance MimeUnrender HTML [Movement] where
   mimeUnrender _ = maybe (Left "Couldn't parse movements table") Right . scrapeMT
     where
       stripUnpack = BSC.unpack . BSC.strip . BS.toStrict
+      moneyToDouble = read . map (\case ',' -> '.'; c -> c) . filter (/= '.')
       scrapeMT bs = scrapeStringLike bs $ do
         chroot ("div" @: ["id" @= "tableMovements"] // "table" // "tbody") $ do
           chroots "tr" $ do
@@ -155,7 +156,7 @@ instance MimeUnrender HTML [Movement] where
 
             date <- parseTimeM False undefined "%d/%m/%0Y" (stripUnpack dateStr)
 
-            pure $ Mov date (stripUnpack desc) (stripUnpack amount) (stripUnpack bal)
+            pure $ Mov date (stripUnpack desc) (moneyToDouble $ stripUnpack amount) (moneyToDouble $ stripUnpack bal)
 
 -- ** How to encode a user
 

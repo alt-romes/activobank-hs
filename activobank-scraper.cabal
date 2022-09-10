@@ -51,11 +51,8 @@ extra-doc-files:    CHANGELOG.md
 -- Extra source files to be distributed with the package, such as examples, or a tutorial module.
 -- extra-source-files:
 
-common warnings
-    ghc-options: -Wall
-
 library
-  import:           warnings
+  ghc-options: -Wall
   exposed-modules:  ActivoBank
   build-depends:    base >=4.14,
                     mtl,
@@ -76,10 +73,7 @@ library
   -- Base language which the package is written in.
   default-language: Haskell2010
 
-executable activobank-scraper
-    -- Import common warning flags.
-    import:           warnings
-
+executable ab-main
     -- .hs or .lhs file containing the Main module.
     main-is:          Main.hs
 
@@ -89,7 +83,11 @@ executable activobank-scraper
     -- Other library packages from which modules are imported.
     build-depends:    base >=4.14,
                       activobank-scraper,
-                      cob
+                      servant,
+                      servant-server,
+                      warp,
+                      cob,
+                      cron
 
     -- Directories containing source files.
     hs-source-dirs:   app
