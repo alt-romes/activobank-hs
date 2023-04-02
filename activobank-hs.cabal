@@ -106,7 +106,8 @@ executable hledger-activobank
     build-depends:    base >=4.14,
                       activobank-hs,
                       hledger-lib,
-                      text
+                      text,
+                      time
 
     -- Directories containing source files.
     hs-source-dirs:   app

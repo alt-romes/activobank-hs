@@ -5,6 +5,9 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeApplications #-}
 
+import Debug.Trace (traceShow)
+import Data.Either
+import Data.Time.Calendar
 import qualified Data.Text.IO as T
 import Data.Char
 import Data.Proxy
@@ -21,7 +24,7 @@ scrapeActivoBank :: Journal -> [Int] -> String -> String -> String -> IO ()
 scrapeActivoBank journal codes user fingerprint browserI = do
 
   -- Get movements from activo bank
-  movements <- withSession codes user fingerprint browserI (fetchMovementsTable 7)
+  movements <- withSession codes user fingerprint browserI (fetchMovementsTable 50)
 
   -- Add movements to HLedger if they are new
   let newTransactions = foldl (insertIfNew journal) [] movements
@@ -33,7 +36,14 @@ scrapeActivoBank journal codes user fingerprint browserI = do
 
 insertIfNew :: Journal -> [Transaction] -> Movement -> [Transaction]
 insertIfNew journal trs mov@(Mov day (fromString -> dd) amt bal) =
-  if null $ filter ((> 0.95) . fst) (journalTransactionsSimilarTo journal Any dd 1)
+    -- FIXME: If there are two transactions with the same description on the
+    -- same day, we will ignore them, but only the second time this is run the
+    -- same day. Does it even matter? Only if we delete an entry we previously logged?
+  if null $ filter ((> 0.5) . fst) $
+            journalTransactionsSimilarTo journal
+              (And [ Desc   (either (\e -> traceShow e (toRegex' ".*")) id $ toRegex dd)
+                   , Date $ DateSpan (Just (Exact day)) (Just (Exact (addDays 1 day)))
+                   ]) dd 1
     then (toTransaction mov):trs
     else trs
 
