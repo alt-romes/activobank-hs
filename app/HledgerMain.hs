@@ -54,4 +54,3 @@ main = do
   journal <- defaultJournal
 
   scrapeActivoBank journal codes user fingerprint browserI
-
