@@ -41,7 +41,7 @@ scrapeActivoBank :: CobSession -> [Int] -> String -> IO ()
 scrapeActivoBank cobsession codes user = do
 
   -- Get movements from activo bank
-  movements <- withSession codes user fetchMovementsTable
+  movements <- withSession codes user "" "" fetchMovementsTable
 
   -- Add movements to RecordM
   mockCob cobsession $ do

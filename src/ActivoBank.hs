@@ -71,8 +71,12 @@ data Movement = Mov { movDay  :: Day    -- ^ Movement day
 -- @
 -- withSession [1,2,3,4,5,6,7] \"ABCDEF12345\" 'fetchMovementsTable'
 -- @
-withSession :: [Int] -> String -> C.ClientM a -> IO a
-withSession codes user clientF = do
+withSession :: [Int] -- ^ User code
+            -> String -- ^ User identifier
+            -> String -- ^ Fingerprint
+            -> String -- ^ Browser Identity
+            -> C.ClientM a -> IO a
+withSession codes user fingerprint browserI clientF = do
 
   m <- newTlsManager
   kj <- Just <$> newTVarIO (createCookieJar []) -- cookies are only propagated if we start with a cookie jar
@@ -82,10 +86,7 @@ withSession codes user clientF = do
     Right mt -> pure mt
 
   where
-    -- hardcoded
-    fingerprint = "1da5bd6bd9d3fb843bbd4785a4f7d691"
-    browserI    = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:104.0) Gecko/20100101 Firefox/104.0|;Portable Document Format;Portable Document Format;Portable Document Format;Portable Document Format;Portable Document Format|1440x900|30|||||MacIntel|en-US|Central European Standard Time"
-    referer     = "https://ind.activobank.pt/_loginV2/BlueMainLoginCdm.aspx?ReturnUrl=https%3a%2f%2find.activobank.pt%2fpt%2fprivate%2fdia-a-dia%2fPages%2fdia-a-dia.aspx%3fLanguage%3dpt"
+    referer     = "https://ind.activobank.pt/_layouts/15/BLUE.Controls/WebPages/Forms/_login/BlueMainLoginCdm.aspx?ReturnUrl=https%3a%2f%2find.activobank.pt%2fpt%2fprivate%2fdia-a-dia%2fPages%2fdia-a-dia.aspx%3fLanguage%3dpt"
 
     createSession :: C.ClientM ()
     createSession = do
@@ -100,17 +101,17 @@ withSession codes user clientF = do
       pure ()
 
 
--- | Fetch the list of movements from ActivoBank in the last 5 days.
+-- | Fetch the list of movements from ActivoBank in the last X days.
 --
 -- This function should be run with a session (using 'withSession')
-fetchMovementsTable :: C.ClientM [Movement]
-fetchMovementsTable = do
+fetchMovementsTable :: Integer -> C.ClientM [Movement]
+fetchMovementsTable daysBack = do
 
     -- Get today
     today <- utctDay <$> liftIO getCurrentTime
 
     -- Get movements using set cookies
-    getMovements (MovementsRequest (addDays (-1) today) today)
+    getMovements (MovementsRequest (addDays (-daysBack) today) today)
 
 
 -- * ActivoBank API
@@ -119,12 +120,14 @@ fetchMovementsTable = do
 activoBankHost :: C.BaseUrl
 activoBankHost = C.BaseUrl C.Https "ind.activobank.pt" 443 ""
 
+type ABBase x = "_layouts" :> "15" :> "BLUE.Controls" :> "WebPages" :> x
+
 type AB
-  =    "_loginV2" :> "BlueMainLoginPageCdmV2.aspx" :> "ValidateUser" :> ReqBody '[JSON] (WithInfo SimpleUser) :> Post '[JSON] AccessCodeDigits
+  =    ABBase ("Forms" :> "_login" :> "BlueMainLoginPageCdmV2.aspx" :> "ValidateUser" :> ReqBody '[JSON] (WithInfo SimpleUser) :> Post '[JSON] AccessCodeDigits)
 
-  :<|> "_loginV2" :> "BlueMainLoginPageCdmV2.aspx" :> "ComfirmValidation" :> Header' '[Required, Strict] "Referer" String :> ReqBody '[JSON] (WithInfo AccessCodeDigits) :> Post '[JSON] Value
+  :<|> ABBase ("Forms" :> "_login" :> "BlueMainLoginPageCdmV2.aspx" :> "ComfirmValidation" :> Header' '[Required, Strict] "Referer" String :> ReqBody '[JSON] (WithInfo AccessCodeDigits) :> Post '[JSON] Value)
 
-  :<|> "WebPages" :> "UIServices" :> "ContentCall.aspx" :> ReqBody '[FormUrlEncoded] MovementsRequest :> Post '[HTML] [Movement]
+  :<|> ABBase ("UIServices" :> "ContentCall.aspx" :> ReqBody '[FormUrlEncoded] MovementsRequest :> Post '[HTML] [Movement])
 
 -- | Must be called within the same 'runClientM' as the login comprising of
 -- @validateUser >> confirmValidation@
