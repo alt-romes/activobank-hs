@@ -30,7 +30,7 @@ scrapeActivoBank :: Journal -> Rules -> [Int] -> String -> String -> String -> I
 scrapeActivoBank journal rules codes user fingerprint browserI = do
 
   -- Get movements from activo bank
-  movements <- withSession codes user fingerprint browserI (fetchMovementsTable 50)
+  movements <- withSession codes user fingerprint browserI (fetchMovementsTable 7)
 
   -- Add movements to HLedger if they are new
   let newTransactions = foldl (insertIfNew journal rules) [] movements
