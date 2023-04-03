@@ -55,7 +55,7 @@ insertIfNew journal rules trs mov@(Mov day (fromString -> dd) amt bal) =
 
 toTransaction :: Rules -> Movement -> Transaction
 toTransaction rules (Mov day dd (realFracToDecimal 2 -> amt) bal) =
-  (transaction day [abPost, otherPost]) { tdescription = fromString dd }
+  (transaction day [abPost, otherPost]) { tdescription = fromString ("* " <> dd) }
     where
       abPost = post "Assets:Checking:ActivoBank" $ Amount "€" amt amtstyle Nothing
       tmpTransaction = (transaction day [abPost]) { tdescription = fromString dd }
