@@ -107,7 +107,8 @@ executable hledger-activobank
                       activobank-hs,
                       hledger-lib,
                       text,
-                      time
+                      time, Decimal,
+                      directory, filepath
 
     -- Directories containing source files.
     hs-source-dirs:   app
