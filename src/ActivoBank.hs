@@ -110,9 +110,23 @@ fetchMovementsTable daysBack = do
     -- Get today
     today <- utctDay <$> liftIO getCurrentTime
 
-    -- Get movements using set cookies
-    getMovements (MovementsRequest (addDays (-daysBack) today) today)
+    -- Fetch movement table from all available pages starting at page 0
+    fetchMovementsTable' today 0
 
+  where
+
+    fetchMovementsTable' :: Day -> Int -> C.ClientM [Movement]
+    fetchMovementsTable' today ix = do
+
+      -- Get movements using set cookies
+      (mvs, hasNext) <- getMovements (mrf today ix)
+
+      -- If a next page is available, recurse
+      if hasNext then (mvs <>) <$> fetchMovementsTable' today (ix + 1)
+                 else pure mvs
+
+    mrf :: Day -> Int -> MovementsRequest
+    mrf today = MovementsRequest (addDays (-daysBack) today) today
 
 -- * ActivoBank API
 
@@ -127,11 +141,11 @@ type AB
 
   :<|> ABBase ("Forms" :> "_login" :> "BlueMainLoginPageCdmV2.aspx" :> "ComfirmValidation" :> Header' '[Required, Strict] "Referer" String :> ReqBody '[JSON] (WithInfo AccessCodeDigits) :> Post '[JSON] Value)
 
-  :<|> ABBase ("UIServices" :> "ContentCall.aspx" :> ReqBody '[FormUrlEncoded] MovementsRequest :> Post '[HTML] [Movement])
+  :<|> ABBase ("UIServices" :> "ContentCall.aspx" :> ReqBody '[FormUrlEncoded] MovementsRequest :> Post '[HTML] ([Movement], Bool)) -- List of movements and boolean indicating whether a next page exists.
 
 -- | Must be called within the same 'runClientM' as the login comprising of
 -- @validateUser >> confirmValidation@
-getMovements :: MovementsRequest -> C.ClientM [Movement]
+getMovements :: MovementsRequest -> C.ClientM ([Movement], Bool)
 validateUser :: WithInfo SimpleUser -> C.ClientM AccessCodeDigits
 confirmValidation :: String -> WithInfo AccessCodeDigits -> C.ClientM Value
 validateUser :<|> confirmValidation :<|> getMovements = C.client (Proxy @AB)
@@ -145,25 +159,28 @@ data HTML
 instance Accept HTML where
   contentType _ = "text/html"
 
-instance MimeUnrender HTML [Movement] where
+instance MimeUnrender HTML ([Movement], Bool) where
   mimeUnrender _ = maybe (Left "Couldn't parse movements table") Right . scrapeMT
     where
       stripUnpack = BSC.unpack . BSC.strip . BS.toStrict
       moneyToDouble = read . map (\case ',' -> '.'; c -> c) . filter (/= '.')
       scrapeMT bs = scrapeStringLike bs $ do
-        chroot ("div" @: ["id" @= "tableMovements"] // "table" // "tbody") $ do
-          chroots "tr" $ do
-            [_, dateStr]  <- texts ("td" @: [hasClass "date"])
-            desc          <- text  ("td" @: [hasClass "desc"])
-            [amount, bal] <- texts ("td" @: [hasClass "amount"])
+        mov <- chroot ("div" @: ["id" @= "tableMovements"] // "table" // "tbody") $ do
+                 chroots "tr" $ do
+                   [_, dateStr]  <- texts ("td" @: [hasClass "date"])
+                   desc          <- text  ("td" @: [hasClass "desc"])
+                   [amount, bal] <- texts ("td" @: [hasClass "amount"])
 
-            date <- parseTimeM False undefined "%d/%m/%0Y" (stripUnpack dateStr)
+                   date <- parseTimeM False undefined "%d/%m/%0Y" (stripUnpack dateStr)
 
-            pure $ Mov date (stripUnpack desc) (moneyToDouble $ stripUnpack amount) (moneyToDouble $ stripUnpack bal)
+                   pure $ Mov date (stripUnpack desc) (moneyToDouble $ stripUnpack amount) (moneyToDouble $ stripUnpack bal)
+        aNextPageVal <- attr "value" ("input" @: ["id" @= "ctl02_hdnHasNextPage"])
+        let hasNextPage = aNextPageVal /= "0"
+        pure (mov, hasNextPage)
 
 -- ** How to encode a user
 
-data SimpleUser = SimpleUser String
+newtype SimpleUser = SimpleUser String
 
 instance ToJSON SimpleUser where
   toJSON (SimpleUser s) = object [ "user" .= s ]
@@ -205,13 +222,15 @@ data MovementsRequest
   = MovementsRequest
     { _movs_from :: Day
     , _movs_to   :: Day
+    , _page_ix   :: Int
     }
 
 instance ToForm MovementsRequest where
-  toForm (MovementsRequest f t) =
+  toForm (MovementsRequest f t ix) =
     [ ("Control"      , "AccountMovementControl")
     , ("AccountObject", "{}")
     , ("DateInit"     , toQueryParam (formatTime undefined "%d/%m/%0Y" f))
     , ("DateEnd"      , toQueryParam (formatTime undefined "%d/%m/%0Y" t))
+    , ("PageIndex"    , toQueryParam ix)
     ]
 

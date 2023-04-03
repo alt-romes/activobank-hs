@@ -3,7 +3,7 @@
 {-# LANGUAGE DataKinds #-}
 
 import qualified Data.List.NonEmpty as NE
-import Debug.Trace (traceShow)
+import Debug.Trace (trace, traceShow)
 import Data.Either
 import Data.Decimal
 import Data.Time.Calendar
@@ -45,7 +45,7 @@ insertIfNew journal rules trs mov@(Mov day (fromString -> dd) amt bal) =
     -- FIXME: If there are two transactions with the same description on the
     -- same day, we will ignore them, but only the second time this is run the
     -- same day. Does it even matter? Only if we delete an entry we previously logged?
-  if not $ any ((> 0.5) . fst) $
+  if not $ any ((> 0.75) . fst) $
             journalTransactionsSimilarTo journal
               (And [ Desc   (either (\e -> traceShow e (toRegex' ".*")) id $ toRegex dd)
                    , Date $ DateSpan (Just (Exact day)) (Just (Exact (addDays 1 day)))
