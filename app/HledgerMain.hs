@@ -41,29 +41,30 @@ scrapeActivoBank journal rules codes user fingerprint browserI = do
 --------------------------------------------
 
 insertIfNew :: Journal -> Rules -> [Transaction] -> Movement -> [Transaction]
-insertIfNew journal rules trs mov@(Mov day (fromString -> dd) amt bal) =
+insertIfNew journal rules trs mov@(Mov day (fromString -> dd) amt _bal) =
     -- FIXME: If there are two transactions with the same description on the
     -- same day, we will ignore them, but only the second time this is run the
     -- same day. Does it even matter? Only if we delete an entry we previously logged?
-  if not $ any ((> 0.75) . fst) $
+  if not $ any ((> 0.5) . fst) $
             journalTransactionsSimilarTo journal
-              (And [ Desc   (either (\e -> traceShow e (toRegex' ".*")) id $ toRegex dd)
-                   , Date $ DateSpan (Just (Exact day)) (Just (Exact (addDays 1 day)))
+              (And [--  Desc   (either (\e -> traceShow e (toRegex' ".*")) id $ toRegex dd)
+                    Date $ DateSpan (Just (Exact day)) (Just (Exact (addDays 1 day)))
                    ]) dd 1
     then toTransaction rules mov:trs
     else trs
 
 toTransaction :: Rules -> Movement -> Transaction
-toTransaction rules (Mov day dd (realFracToDecimal 2 -> amt) bal) =
+toTransaction rules (Mov day dd (realFracToDecimal 2 -> amt) (realFracToDecimal 2 -> bal)) =
   (transaction day [abPost, otherPost]) { tdescription = fromString ("* " <> dd) }
     where
-      abPost = post "Assets:Checking:ActivoBank" $ Amount "€" amt amtstyle Nothing
+      abPost = post' "Assets:Checking:ActivoBank" (mkEurAmt amt) (balassert (mkEurAmt bal))
       tmpTransaction = (transaction day [abPost]) { tdescription = fromString dd }
       otherPost = post (case NE.nonEmpty (filter ((`matchesTransaction` tmpTransaction) . fst) rules) of
                           Just ((_,acc) NE.:| _) -> acc
                           Nothing -> if amt > 0 then "Revenue:TODO" else "Expenses:TODO")
-                    $ Amount "€" (-amt) amtstyle Nothing
-      amtstyle = amountstyle{ascommodityside=R,asprecision=NaturalPrecision}
+                    $ mkEurAmt (-amt)
+      mkEurAmt x = Amount "€" x eurstyle Nothing
+      eurstyle = amountstyle{ascommodityside=R,asprecision=NaturalPrecision}
 
 --------------------------------------------
 
