@@ -123,7 +123,7 @@ fetchMovementsTable daysBack = do
 
       -- If a next page is available, recurse
       if hasNext then (mvs <>) <$> fetchMovementsTable' today (ix + 1)
-                 else pure mvs
+                 else return mvs
 
     mrf :: Day -> Int -> MovementsRequest
     mrf today = MovementsRequest (addDays (-daysBack) today) today
@@ -137,11 +137,14 @@ activoBankHost = C.BaseUrl C.Https "ind.activobank.pt" 443 ""
 type ABBase x = "_layouts" :> "15" :> "BLUE.Controls" :> "WebPages" :> x
 
 type AB
-  =    ABBase ("Forms" :> "_login" :> "BlueMainLoginPageCdmV2.aspx" :> "ValidateUser" :> ReqBody '[JSON] (WithInfo SimpleUser) :> Post '[JSON] AccessCodeDigits)
+  =    ABBase ("Forms" :> "_login" :> "BlueMainLoginPageCdmV2.aspx" :> "ValidateUser"
+              :> ReqBody '[JSON] (WithInfo SimpleUser) :> Post '[JSON] AccessCodeDigits)
 
-  :<|> ABBase ("Forms" :> "_login" :> "BlueMainLoginPageCdmV2.aspx" :> "ComfirmValidation" :> Header' '[Required, Strict] "Referer" String :> ReqBody '[JSON] (WithInfo AccessCodeDigits) :> Post '[JSON] Value)
+  :<|> ABBase ("Forms" :> "_login" :> "BlueMainLoginPageCdmV2.aspx" :> "ComfirmValidation"
+              :> Header' '[Required, Strict] "Referer" String :> ReqBody '[JSON] (WithInfo AccessCodeDigits) :> Post '[JSON] Value)
 
-  :<|> ABBase ("UIServices" :> "ContentCall.aspx" :> ReqBody '[FormUrlEncoded] MovementsRequest :> Post '[HTML] ([Movement], Bool)) -- List of movements and boolean indicating whether a next page exists.
+  -- List of movements and boolean indicating whether a next page exists.
+  :<|> ABBase ("UIServices" :> "ContentCall.aspx" :> ReqBody '[FormUrlEncoded] MovementsRequest :> Post '[HTML] ([Movement], Bool))
 
 -- | Must be called within the same 'runClientM' as the login comprising of
 -- @validateUser >> confirmValidation@
