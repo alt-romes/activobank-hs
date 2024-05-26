@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE DataKinds #-}
 
@@ -7,6 +8,7 @@ import Debug.Trace (trace, traceShow)
 import Data.Either
 import Data.Decimal
 import Data.Time.Calendar
+import qualified Data.ByteString.Lazy as BS
 import qualified Data.Text.IO as T
 import qualified Data.Text as T
 import Data.Char
@@ -15,6 +17,8 @@ import Data.String
 import Control.Monad.IO.Class
 import System.Directory
 import System.FilePath
+import Servant.Client.Core (ClientError(..), ResponseF(..))
+import Control.Exception
 
 import Hledger
 
@@ -30,7 +34,7 @@ scrapeActivoBank :: Journal -> Rules -> [Int] -> String -> String -> String -> I
 scrapeActivoBank journal rules codes user fingerprint browserI = do
 
   -- Get movements from activo bank
-  movements <- withSession codes user fingerprint browserI (fetchMovementsTable 7)
+  movements <- withSession codes user fingerprint browserI (fetchMovementsTable 7) `catch` \case e@(FailureResponse _rq rsp) -> BS.putStr (responseBody rsp) >> throwIO e; e -> throwIO e
 
   -- Add movements to HLedger if they are new
   let newTransactions = foldl (insertIfNew journal rules) [] movements
@@ -45,11 +49,12 @@ insertIfNew journal rules trs mov@(Mov day (fromString -> dd) amt _bal) =
     -- FIXME: If there are two transactions with the same description on the
     -- same day, we will ignore them, but only the second time this is run the
     -- same day. Does it even matter? Only if we delete an entry we previously logged?
-  if not $ any ((> 0.5) . fst) $
-            journalTransactionsSimilarTo journal
+    -- FIXME:UPDATE: Now we should only need to check the total amount remaining in ActivoBank
+  if null $
+            journalTransactionsSimilarTo journal dd
               (And [--  Desc   (either (\e -> traceShow e (toRegex' ".*")) id $ toRegex dd)
                     Date $ DateSpan (Just (Exact day)) (Just (Exact (addDays 1 day)))
-                   ]) dd 1
+                   ]) 0.5 1
     then toTransaction rules mov:trs
     else trs
 
@@ -73,6 +78,10 @@ main = do
   xdgConfigDir <- getXdgDirectory XdgConfig "activobank"
 
   -- Sessions
+  -- browserInfo and fingerprint are part of the basic request body to login
+  -- REMEMBER TO check for browserInfo and fingerprint in the request body of
+  -- the login requests, but DO IT IN A PRIVATE SESSION, TO MAKE SURE
+  -- CACHE/COOKIES ARE CLEAN, or otherwise fingerprint shows up empty
   [map digitToInt -> codes, user, fingerprint, browserI] <- lines <$> readFile (xdgConfigDir </> ".activobank.secret")
   rules <- map ((\(qstr, acc) -> (either error fst (parseQuery nulldate qstr), T.drop 4 acc)) . T.breakOn "==> ")
               . T.lines <$> T.readFile (xdgConfigDir </> "rules.txt")            -- Match ^ characters, ==> and the space afterwards

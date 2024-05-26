@@ -75,7 +75,8 @@ withSession :: [Int] -- ^ User code
             -> String -- ^ User identifier
             -> String -- ^ Fingerprint
             -> String -- ^ Browser Identity
-            -> C.ClientM a -> IO a
+            -> C.ClientM a
+            -> IO a
 withSession codes user fingerprint browserI clientF = do
 
   m <- newTlsManager

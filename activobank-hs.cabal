@@ -62,7 +62,7 @@ library
                     aeson,
                     scalpel-core,
                     servant,
-                    servant-client,
+                    servant-client >= 0.20,
                     http-client,
                     http-client-tls,
                     http-api-data
@@ -73,27 +73,27 @@ library
   -- Base language which the package is written in.
   default-language: Haskell2010
 
-executable ab-main
-    -- .hs or .lhs file containing the Main module.
-    main-is:          Main.hs
+-- executable ab-main
+--     -- .hs or .lhs file containing the Main module.
+--     main-is:          Main.hs
 
-    -- LANGUAGE extensions used by modules in this package.
-    -- other-extensions:
+--     -- LANGUAGE extensions used by modules in this package.
+--     -- other-extensions:
 
-    -- Other library packages from which modules are imported.
-    build-depends:    base >=4.14,
-                      activobank-hs,
-                      servant,
-                      servant-server,
-                      warp,
-                      cob,
-                      cron
+--     -- Other library packages from which modules are imported.
+--     build-depends:    base >=4.14,
+--                       activobank-hs,
+--                       servant,
+--                       servant-server,
+--                       warp,
+--                       cob,
+--                       cron
 
-    -- Directories containing source files.
-    hs-source-dirs:   app
+--     -- Directories containing source files.
+--     hs-source-dirs:   app
 
-    -- Base language which the package is written in.
-    default-language: Haskell2010
+--     -- Base language which the package is written in.
+--     default-language: Haskell2010
 
 executable hledger-activobank
     -- .hs or .lhs file containing the Main module.
@@ -105,10 +105,11 @@ executable hledger-activobank
     -- Other library packages from which modules are imported.
     build-depends:    base >=4.14,
                       activobank-hs,
-                      hledger-lib < 1.30,
+                      hledger-lib >= 1.33.1,
                       text,
                       time, Decimal,
-                      directory, filepath
+                      servant-client-core,
+                      directory, filepath, bytestring
 
     -- Directories containing source files.
     hs-source-dirs:   app
