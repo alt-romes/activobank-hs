@@ -109,7 +109,9 @@ withSession codes user fingerprint browserI clientF = do
 -- | Fetch the list of movements from ActivoBank in the last X days.
 --
 -- This function should be run with a session (using 'withSession')
-fetchMovementsTable :: Integer -> C.ClientM [Movement]
+fetchMovementsTable :: Integer
+                    -- ^ How many days back to fetch transactions from
+                    -> C.ClientM [Movement]
 fetchMovementsTable daysBack = do
 
     -- Get today
@@ -239,7 +241,7 @@ data MovementsRequest
 instance ToForm MovementsRequest where
   toForm (MovementsRequest f t ix) =
     [ ("Control"      , "AccountMovementControl")
-    , ("AccountObject", "{\"idConta\":1}")
+    , ("AccountObject", "{\"idConta\":1}") -- idConta fixed to 1, I don't know what it's for.
     , ("DateInit"     , toQueryParam (formatTime undefined "%d/%m/%0Y" f))
     , ("DateEnd"      , toQueryParam (formatTime undefined "%d/%m/%0Y" t))
     , ("PageIndex"    , toQueryParam ix)

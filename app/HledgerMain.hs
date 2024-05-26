@@ -3,6 +3,7 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE DataKinds #-}
 
+import Options.Applicative
 import qualified Data.List.NonEmpty as NE
 import Debug.Trace (trace, traceShow)
 import Data.Either
@@ -24,17 +25,17 @@ import Hledger
 
 import ActivoBank
 
--- | A mapping from a query on transaction to the account associated with the
--- transaction (on the other end)
+-- | A mapping from a query on transaction to the account
+-- associated with the transaction (on the other end)
 type Rules = [(Query,AccountName)]
 
 --------------------------------------------
 
-scrapeActivoBank :: Journal -> Rules -> [Int] -> String -> String -> String -> IO ()
-scrapeActivoBank journal rules codes user fingerprint browserI = do
+scrapeActivoBank :: Integer {-^ Fetch movements from X days back to now-} -> Journal -> Rules -> [Int] -> String -> String -> String -> IO ()
+scrapeActivoBank daysBack journal rules codes user fingerprint browserI = do
 
   -- Get movements from activo bank
-  movements <- withSession codes user fingerprint browserI (fetchMovementsTable 7) `catch` \case e@(FailureResponse _rq rsp) -> BS.putStr (responseBody rsp) >> throwIO e; e -> throwIO e
+  movements <- withSession codes user fingerprint browserI (fetchMovementsTable daysBack) `catch` \case e@(FailureResponse _rq rsp) -> BS.putStr (responseBody rsp) >> throwIO e; e -> throwIO e
 
   -- Add movements to HLedger if they are new
   let newTransactions = foldl (insertIfNew journal rules) [] movements
@@ -73,8 +74,21 @@ toTransaction rules (Mov day dd (realFracToDecimal 2 -> amt) (realFracToDecimal 
 
 --------------------------------------------
 
+daysBackOpt :: Parser Integer
+daysBackOpt =
+  option auto
+   $ long "days-back"
+  <> short 'd'
+  <> metavar "INT"
+  <> help "The number of days back to fetch movements from."
+  <> Options.Applicative.value 7
+  <> showDefault
+
 main :: IO ()
 main = do
+
+  daysBack <- execParser $ info (daysBackOpt <**> helper <**> simpleVersioner "v0.2") mempty
+
   xdgConfigDir <- getXdgDirectory XdgConfig "activobank"
 
   -- Sessions
@@ -88,5 +102,5 @@ main = do
 
   journal <- defaultJournal
 
-  scrapeActivoBank journal rules codes user fingerprint browserI
+  scrapeActivoBank daysBack journal rules codes user fingerprint browserI
 
