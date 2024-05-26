@@ -65,7 +65,8 @@ library
                     servant-client >= 0.20,
                     http-client,
                     http-client-tls,
-                    http-api-data
+                    http-api-data,
+                    http-media
 
   -- Directories containing source files.
   hs-source-dirs:   src

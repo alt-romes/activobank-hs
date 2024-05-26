@@ -82,11 +82,15 @@ withSession codes user fingerprint browserI clientF = do
   m <- newTlsManager
   kj <- Just <$> newTVarIO (createCookieJar []) -- cookies are only propagated if we start with a cookie jar
 
-  C.runClientM (createSession >> clientF) (C.ClientEnv m activoBankHost kj C.defaultMakeClientRequest) >>= \case
+  C.runClientM (createSession >> clientF) (C.ClientEnv m activoBankHost kj makeRequest) >>= \case
     Left e -> throwIO e
     Right mt -> pure mt
 
   where
+    makeRequest baseURL req = do
+      -- putStrLn $ "HTTP request " ++ show baseURL ++ ":\n" ++ show req
+      C.defaultMakeClientRequest baseURL req
+
     referer     = "https://ind.activobank.pt/_layouts/15/BLUE.Controls/WebPages/Forms/_login/BlueMainLoginCdm.aspx?ReturnUrl=https%3a%2f%2find.activobank.pt%2fpt%2fprivate%2fdia-a-dia%2fPages%2fdia-a-dia.aspx%3fLanguage%3dpt"
 
     createSession :: C.ClientM ()
@@ -163,6 +167,9 @@ data HTML
 instance Accept HTML where
   contentType _ = "text/html"
 
+-- Another valid strategy would be to download the CSV and import it
+-- automatically, instead of parsing the movement table which is fragile to
+-- HTML changes by the bank
 instance MimeUnrender HTML ([Movement], Bool) where
   mimeUnrender _ = maybe (Left "Couldn't parse movements table") Right . scrapeMT
     where
@@ -232,7 +239,7 @@ data MovementsRequest
 instance ToForm MovementsRequest where
   toForm (MovementsRequest f t ix) =
     [ ("Control"      , "AccountMovementControl")
-    , ("AccountObject", "{}")
+    , ("AccountObject", "{\"idConta\":1}")
     , ("DateInit"     , toQueryParam (formatTime undefined "%d/%m/%0Y" f))
     , ("DateEnd"      , toQueryParam (formatTime undefined "%d/%m/%0Y" t))
     , ("PageIndex"    , toQueryParam ix)
