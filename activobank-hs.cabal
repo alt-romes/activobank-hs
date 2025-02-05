@@ -62,7 +62,7 @@ library
                     aeson,
                     scalpel-core,
                     servant,
-                    servant-client >= 0.20,
+                    servant-client >= 0.20.2,
                     http-client,
                     http-client-tls,
                     http-api-data,
@@ -106,7 +106,7 @@ executable hledger-activobank
     -- Other library packages from which modules are imported.
     build-depends:    base >=4.14,
                       activobank-hs,
-                      hledger-lib >= 1.33.1,
+                      hledger-lib >= 1.41,
                       text,
                       time, Decimal,
                       servant-client-core,

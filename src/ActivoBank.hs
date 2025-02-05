@@ -82,7 +82,7 @@ withSession codes user fingerprint browserI clientF = do
   m <- newTlsManager
   kj <- Just <$> newTVarIO (createCookieJar []) -- cookies are only propagated if we start with a cookie jar
 
-  C.runClientM (createSession >> clientF) (C.ClientEnv m activoBankHost kj makeRequest) >>= \case
+  C.runClientM (createSession >> clientF) (C.ClientEnv m activoBankHost kj makeRequest id) >>= \case
     Left e -> throwIO e
     Right mt -> pure mt
 
