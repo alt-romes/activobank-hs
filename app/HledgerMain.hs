@@ -67,7 +67,7 @@ toTransaction rules (Mov day dd (realFracToDecimal 2 -> amt) (realFracToDecimal 
       tmpTransaction = (transaction day [abPost]) { tdescription = fromString dd }
       otherPost = post (case NE.nonEmpty (filter ((`matchesTransaction` tmpTransaction) . fst) rules) of
                           Just ((_,acc) NE.:| _) -> acc
-                          Nothing -> if amt > 0 then "Revenue:TODO" else "Expenses:TODO")
+                          Nothing -> if amt > 0 then "Income:TODO" else "Expenses:TODO")
                     $ mkEurAmt (-amt)
       mkEurAmt x = Amount "€" x eurstyle Nothing
       eurstyle = amountstyle{ascommodityside=R,asprecision=NaturalPrecision}
