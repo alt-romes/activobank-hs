@@ -46,18 +46,19 @@ scrapeActivoBank daysBack journal rules codes user fingerprint browserI = do
 --------------------------------------------
 
 insertIfNew :: Journal -> Rules -> [Transaction] -> Movement -> [Transaction]
-insertIfNew journal rules trs mov@(Mov day (fromString -> dd) amt _bal) =
-    -- FIXME: If there are two transactions with the same description on the
-    -- same day, we will ignore them, but only the second time this is run the
-    -- same day. Does it even matter? Only if we delete an entry we previously logged?
-    -- FIXME:UPDATE: Now we should only need to check the total amount remaining in ActivoBank
-  if null $
-            journalTransactionsSimilarTo journal dd
-              (And [--  Desc   (either (\e -> traceShow e (toRegex' ".*")) id $ toRegex dd)
-                    Date $ DateSpan (Just (Exact day)) (Just (Exact (addDays 1 day)))
-                   ]) 0.5 1
-    then toTransaction rules mov:trs
-    else trs
+insertIfNew journal rules acc mov@(Mov day (fromString -> dd) amt _bal) =
+  case journalLastDay False{-primary date-} journal of
+    Just lastDay
+      -- Only add transactions from last day in the journal
+      | lastDay <= day
+      -- and only if there does not exist a similar transaction with the same amount
+      , null $
+          journalTransactionsSimilarTo journal dd
+            (And [ Date $ DateSpan (Just (Exact day)) (Just (Exact (addDays 1 day)))
+                 , Amt Eq (realFracToDecimal 2 amt)
+                 ]) 0.8 1
+      -> toTransaction rules mov:acc
+    _ -> acc
 
 toTransaction :: Rules -> Movement -> Transaction
 toTransaction rules (Mov day dd (realFracToDecimal 2 -> amt) (realFracToDecimal 2 -> bal)) =
