@@ -88,7 +88,7 @@ daysBackOpt =
 main :: IO ()
 main = do
 
-  daysBack <- execParser $ info (daysBackOpt <**> helper <**> simpleVersioner "v0.2") mempty
+  daysBack <- execParser $ info (daysBackOpt <**> helper <**> simpleVersioner "v0.3") mempty
 
   xdgConfigDir <- getXdgDirectory XdgConfig "activobank"
 
