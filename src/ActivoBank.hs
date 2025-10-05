@@ -241,7 +241,7 @@ data MovementsRequest
 instance ToForm MovementsRequest where
   toForm (MovementsRequest f t ix) =
     [ ("Control"      , "AccountMovementControl")
-    , ("AccountObject", "{\"idConta\":1}") -- idConta fixed to 1, I don't know what it's for.
+    , ("AccountObject", "{\"idConta\":0}") -- I have no idea.
     , ("DateInit"     , toQueryParam (formatTime undefined "%d/%m/%0Y" f))
     , ("DateEnd"      , toQueryParam (formatTime undefined "%d/%m/%0Y" t))
     , ("PageIndex"    , toQueryParam ix)
