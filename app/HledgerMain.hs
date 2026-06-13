@@ -70,7 +70,7 @@ toTransaction rules (Mov day dd (realFracToDecimal 2 -> amt) (realFracToDecimal 
                           Just ((_,acc) NE.:| _) -> acc
                           Nothing -> if amt > 0 then "Income:TODO" else "Expenses:TODO")
                     $ mkEurAmt (-amt)
-      mkEurAmt x = Amount "€" x eurstyle Nothing
+      mkEurAmt x = Amount "€" x eurstyle Nothing Nothing
       eurstyle = amountstyle{ascommodityside=R,asprecision=NaturalPrecision}
 
 --------------------------------------------
