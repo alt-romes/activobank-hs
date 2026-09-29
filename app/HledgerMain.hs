@@ -11,6 +11,7 @@ import Data.Decimal
 import Data.Time.Calendar
 import qualified Data.ByteString.Lazy as BS
 import qualified Data.Text.IO as T
+import qualified Data.Text.Encoding as T
 import qualified Data.Text as T
 import Data.Char
 import Data.Proxy
@@ -21,6 +22,7 @@ import System.FilePath
 import Servant.Client.Core (ClientError(..), ResponseF(..))
 import Control.Exception
 
+import Control.Events hiding (Rules(..))
 import Hledger
 
 import ActivoBank
@@ -32,16 +34,34 @@ type Rules = [(Query,AccountName)]
 --------------------------------------------
 
 scrapeActivoBank :: Integer {-^ Fetch movements from X days back to now-} -> Journal -> Rules -> [Int] -> String -> String -> String -> IO ()
-scrapeActivoBank daysBack journal rules codes user fingerprint browserI = do
+scrapeActivoBank daysBack journal rules codes user fingerprint browserI =
+  withConn (script <> "finances") $ \c ->
+  event c (simple ("hledger-activobank -d " ++ show daysBack)) "hledger-activobank" $ \ev -> do
 
-  -- Get movements from activo bank
-  movements <- withSession codes user fingerprint browserI (fetchMovementsTable daysBack) `catch` \case e@(FailureResponse _rq rsp) -> BS.putStr (responseBody rsp) >> throwIO e; e -> throwIO e
+    mvs <- event c (simple "Fetch movements table" & scoped ?~ ev) "fetch-movements" $ \_ -> do
 
-  -- Add movements to HLedger if they are new
-  let newTransactions = foldl (insertIfNew journal rules) [] movements
+      -- Get movements from activo bank
+      mvs <- try (withSession codes user fingerprint browserI (fetchMovementsTable daysBack))
+      case mvs of
+        Left (FailureResponse _rq rsp)
+          | let bodyT = T.decodeUtf8 $ BS.toStrict $ responseBody rsp
+                 -> do
+                    T.putStr bodyT
+                    pure $ failed (T.unpack bodyT) mvs
+        Left e   -> pure $ failed (displayException e) mvs
+        Right ms -> pure $ done ("Fetched " ++ show (length ms) ++ " movements") mvs
 
-  mapM_ (T.putStr . showTransaction) newTransactions
-  mapM_ (T.appendFile (journalFilePath journal) . showTransaction) newTransactions
+    case mvs of
+      Left e -> throwIO e
+      Right movements -> do
+
+        -- Add movements to HLedger if they are new
+        let newTransactions = foldl (insertIfNew journal rules) [] movements
+
+        mapM_ (T.putStr . showTransaction) newTransactions
+        mapM_ (T.appendFile (journalFilePath journal) . showTransaction) newTransactions
+
+        pure $ done "Updated ledger successfully" ()
 
 --------------------------------------------
 

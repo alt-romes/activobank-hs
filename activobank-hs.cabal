@@ -100,12 +100,16 @@ executable hledger-activobank
     -- .hs or .lhs file containing the Main module.
     main-is:          HledgerMain.hs
 
+    -- control-events (MQTT) needs the threaded runtime
+    ghc-options:      -threaded
+
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
 
     -- Other library packages from which modules are imported.
     build-depends:    base >=4.14,
                       activobank-hs,
+                      control-events,
                       hledger-lib >= 1.52,
                       text,
                       time, Decimal,
