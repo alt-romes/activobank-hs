@@ -33,12 +33,15 @@ type Rules = [(Query,AccountName)]
 
 --------------------------------------------
 
-scrapeActivoBank :: Integer {-^ Fetch movements from X days back to now-} -> Journal -> Rules -> [Int] -> String -> String -> String -> IO ()
-scrapeActivoBank daysBack journal rules codes user fingerprint browserI =
+-- | Runs daily, so the next run is expected within 25h.
+scrapeActivoBank :: Integer {-^ Fetch movements from X days back to now-} -> Rules -> [Int] -> String -> String -> String -> IO ()
+scrapeActivoBank daysBack rules codes user fingerprint browserI =
   withConn (script <> "finances") $ \c ->
-  event c (simple ("hledger-activobank -d " ++ show daysBack)) "hledger-activobank" $ \ev -> do
+  event c "hledger-activobank" (simple ("hledger-activobank -d " ++ show daysBack) & evtExpected ?~ 25 * 3600) $ \ev -> do
 
-    mvs <- event c (simple "Fetch movements table" & scoped ?~ ev) "fetch-movements" $ \_ -> do
+    journal <- defaultJournal
+
+    mvs <- event c "fetch-movements" (simple "Fetch movements table" & scoped ?~ ev) $ \_ -> do
 
       -- Get movements from activo bank
       mvs <- try (withSession codes user fingerprint browserI (fetchMovementsTable daysBack))
@@ -121,7 +124,5 @@ main = do
   rules <- map ((\(qstr, acc) -> (either error fst (parseQuery nulldate qstr), T.drop 4 acc)) . T.breakOn "==> ")
               . T.lines <$> T.readFile (xdgConfigDir </> "rules.txt")            -- Match ^ characters, ==> and the space afterwards
 
-  journal <- defaultJournal
-
-  scrapeActivoBank daysBack journal rules codes user fingerprint browserI
+  scrapeActivoBank daysBack rules codes user fingerprint browserI
 
