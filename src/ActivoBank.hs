@@ -205,8 +205,15 @@ instance Accept HTML where
 -- automatically, instead of parsing the movement table which is fragile to
 -- HTML changes by the bank
 instance MimeUnrender HTML ([Movement], Bool) where
-  mimeUnrender _ = maybe (Left "Couldn't parse movements table") Right . scrapeMT
+  mimeUnrender _ bs = case scrapeMT bs of
+      Just r  -> Right r
+      -- No movements table: say why, if the bank gave an error code
+      Nothing -> Left $ case scrapeStringLike bs errorCode of
+        Just "1152" -> "ActivoBank requires an SMS authorisation to show movements older than 90 days (error 1152). Use -d 89 or less."
+        Just code | not (null code) -> "ActivoBank returned error " ++ code ++ " instead of the movements table"
+        _ -> "Couldn't parse movements table"
     where
+      errorCode = stripUnpack <$> attr "value" ("input" @: ["id" @= "ctl02__hdnErrorCode"])
       stripUnpack = BSC.unpack . BSC.strip . BS.toStrict
       moneyToDouble = read . map (\case ',' -> '.'; c -> c) . filter (/= '.')
       scrapeMT bs = scrapeStringLike bs $ do
