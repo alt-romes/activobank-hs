@@ -101,9 +101,14 @@ withSession codes user fingerprint browserI clientF = do
       let access = AccessCodeDigits (codes !! (a-1)) (codes !! (b-1)) (codes !! (c-1))
 
       -- Confirmation will set the user cookie for the next request
-      _ <- confirmValidation referer (WithInfo fingerprint browserI access)
+      r <- confirmValidation referer (WithInfo fingerprint browserI access)
 
-      pure ()
+      -- The response is {"d": [status, message, ...]}; status "1" means success.
+      -- Other statuses: "0"/"-1" wrong codes, "-2" error (with d[11] >= 2 the
+      -- site starts requiring a reCAPTCHA), "-999" multichannel code blocked.
+      case Data.Aeson.Types.parseMaybe (withObject "ComfirmValidation" (.: "d")) r :: Maybe [Value] of
+        Just (st : _) | st == String "1" || st == Number 1 -> pure ()
+        _ -> liftIO $ throwIO $ userError $ "ActivoBank login confirmation failed: " ++ show r
 
 
 -- | Fetch the list of movements from ActivoBank in the last X days.
@@ -215,7 +220,10 @@ instance ToJSON AccessCodeDigits where
   toJSON (AccessCodeDigits a b c) = object [ "code1" .= show a
                                            , "code2" .= show b
                                            , "code3" .= show c
-                                           , "sms"   .= ("" :: String) ]
+                                           , "sms"   .= ("" :: String)
+                                           -- Required since late 2026. Empty unless the site shows a
+                                           -- captcha (only after repeated failed logins).
+                                           , "tokenRecaptcha" .= ("" :: String) ]
 
 -- ** Wrapper to add required fingerprint and browserInfo information
 
