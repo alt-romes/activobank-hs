@@ -34,8 +34,10 @@ import qualified Data.Vector as V
 
 import Text.HTML.Scalpel.Core
 
+import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import Control.Exception (throwIO)
+import System.IO (hFlush, hIsTerminalDevice, stdin, stdout)
 
 import Data.Char
 import Data.Proxy
@@ -96,9 +98,22 @@ withSession codes user fingerprint browserI clientF = do
     createSession :: C.ClientM ()
     createSession = do
       -- Get the required access tokens
-      AccessCodeDigits a b c <- validateUser (WithInfo fingerprint browserI (SimpleUser user))
+      LoginChallenge a b c needsSms <- validateUser (WithInfo fingerprint browserI (SimpleUser user))
 
-      let access = AccessCodeDigits (codes !! (a-1)) (codes !! (b-1)) (codes !! (c-1))
+      -- Every so often (or for an unrecognised fingerprint) the bank also
+      -- requires an SMS code. Never confirm without it: a failed confirmation
+      -- counts as a failed login, and after 2 the site demands a reCAPTCHA.
+      sms <- if not needsSms then pure Nothing else do
+        interactive <- liftIO $ hIsTerminalDevice stdin
+        unless interactive $ liftIO $ throwIO $ userError
+          "ActivoBank requires SMS verification for this login. Run hledger-activobank from a terminal once to enter the SMS code."
+        _ <- resendMessage referer (object [])
+        liftIO $ do
+          putStr "ActivoBank sent you an SMS code. Enter it: "
+          hFlush stdout
+          Just . filter (not . isSpace) <$> getLine
+
+      let access = LoginCredentials (codes !! (a-1)) (codes !! (b-1)) (codes !! (c-1)) sms
 
       -- Confirmation will set the user cookie for the next request
       r <- confirmValidation referer (WithInfo fingerprint browserI access)
@@ -150,10 +165,14 @@ type ABBase x = "_layouts" :> "15" :> "BLUE.Controls" :> "WebPages" :> x
 
 type AB
   =    ABBase ("Forms" :> "_login" :> "BlueMainLoginPageCdmV2.aspx" :> "ValidateUser"
-              :> ReqBody '[JSON] (WithInfo SimpleUser) :> Post '[JSON] AccessCodeDigits)
+              :> ReqBody '[JSON] (WithInfo SimpleUser) :> Post '[JSON] LoginChallenge)
 
   :<|> ABBase ("Forms" :> "_login" :> "BlueMainLoginPageCdmV2.aspx" :> "ComfirmValidation"
-              :> Header' '[Required, Strict] "Referer" String :> ReqBody '[JSON] (WithInfo AccessCodeDigits) :> Post '[JSON] Value)
+              :> Header' '[Required, Strict] "Referer" String :> ReqBody '[JSON] (WithInfo LoginCredentials) :> Post '[JSON] Value)
+
+  -- Asks the bank to send the SMS code (body is an empty JSON object)
+  :<|> ABBase ("Forms" :> "_login" :> "BlueMainLoginPageCdmV2.aspx" :> "ResendMessage"
+              :> Header' '[Required, Strict] "Referer" String :> ReqBody '[JSON] Value :> Post '[JSON] Value)
 
   -- List of movements and boolean indicating whether a next page exists.
   :<|> ABBase ("UIServices" :> "ContentCall.aspx" :> ReqBody '[FormUrlEncoded] MovementsRequest :> Post '[HTML] ([Movement], Bool))
@@ -161,9 +180,10 @@ type AB
 -- | Must be called within the same 'runClientM' as the login comprising of
 -- @validateUser >> confirmValidation@
 getMovements :: MovementsRequest -> C.ClientM ([Movement], Bool)
-validateUser :: WithInfo SimpleUser -> C.ClientM AccessCodeDigits
-confirmValidation :: String -> WithInfo AccessCodeDigits -> C.ClientM Value
-validateUser :<|> confirmValidation :<|> getMovements = C.client (Proxy @AB)
+validateUser :: WithInfo SimpleUser -> C.ClientM LoginChallenge
+confirmValidation :: String -> WithInfo LoginCredentials -> C.ClientM Value
+resendMessage :: String -> Value -> C.ClientM Value
+validateUser :<|> confirmValidation :<|> resendMessage :<|> getMovements = C.client (Proxy @AB)
 
 
 -- * Types for marshalling
@@ -205,25 +225,33 @@ instance ToJSON SimpleUser where
 
 -- ** How to receive and send access code digits
 
-data AccessCodeDigits = AccessCodeDigits Int Int Int
+-- | The three access code positions the bank asks for, and whether it also
+-- requires an SMS code. In the response, d[2] is
+-- ["6ª","3ª","4ª", message, smsFlag, ...]; the site asks for an SMS whenever
+-- smsFlag is not null.
+data LoginChallenge = LoginChallenge Int Int Int Bool
 
-instance FromJSON AccessCodeDigits where
+instance FromJSON LoginChallenge where
   parseJSON = withObject "parsing access codes" $ \obj -> do
     d   <- obj .: "d"
     c6  <- parseJSON $ d V.! 2
     a:_ <- parseJSON $ c6 V.! 0
     b:_ <- parseJSON $ c6 V.! 1
     c:_ <- parseJSON $ c6 V.! 2
-    pure $ AccessCodeDigits (digitToInt a) (digitToInt b) (digitToInt c)
+    let needsSms = maybe False (/= Null) (c6 V.!? 4)
+    pure $ LoginChallenge (digitToInt a) (digitToInt b) (digitToInt c) needsSms
 
-instance ToJSON AccessCodeDigits where
-  toJSON (AccessCodeDigits a b c) = object [ "code1" .= show a
-                                           , "code2" .= show b
-                                           , "code3" .= show c
-                                           , "sms"   .= ("" :: String)
-                                           -- Required since late 2026. Empty unless the site shows a
-                                           -- captcha (only after repeated failed logins).
-                                           , "tokenRecaptcha" .= ("" :: String) ]
+-- | The three requested access code digits, and the SMS code (if required)
+data LoginCredentials = LoginCredentials Int Int Int (Maybe String)
+
+instance ToJSON LoginCredentials where
+  toJSON (LoginCredentials a b c sms) = object [ "code1" .= show a
+                                               , "code2" .= show b
+                                               , "code3" .= show c
+                                               , "sms"   .= maybe "" id sms
+                                               -- Required since late 2026. Empty unless the site shows a
+                                               -- captcha (only after repeated failed logins).
+                                               , "tokenRecaptcha" .= ("" :: String) ]
 
 -- ** Wrapper to add required fingerprint and browserInfo information
 
