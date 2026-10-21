@@ -31,9 +31,11 @@ import qualified Data.ByteString.Lazy as BS
 import qualified Data.ByteString.Char8 as BSC
 
 import qualified Data.Vector as V
+import Data.List.Split (chunksOf)
 
 import Text.HTML.Scalpel.Core
 
+import Control.Applicative ((<|>))
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import Control.Exception (throwIO)
@@ -60,7 +62,7 @@ data Movement = Mov { movDay  :: Day    -- ^ Movement day
                     , movAmt  :: Double -- ^ Amount
                     , movBal  :: Double -- ^ Balance
                     }
-                deriving Show
+                deriving (Show, Eq)
 
 -- | Run a 'C.ClientM' within an ActivoBank session.
 --
@@ -137,23 +139,28 @@ fetchMovementsTable daysBack = do
     -- Get today
     today <- utctDay <$> liftIO getCurrentTime
 
-    -- Fetch movement table from all available pages starting at page 0
-    fetchMovementsTable' today 0
+    -- The bank refuses searches that match too many movements ("Demasiados
+    -- registos encontrados"), so instead of one big search we do one search
+    -- per 30 days, newest first (the same order the bank lists movements in).
+    let days     = reverse [addDays (-daysBack) today .. today]
+        searches = [ (minimum chunk, maximum chunk) | chunk <- chunksOf 30 days ]
+
+    concat <$> mapM (\(from, to) -> fetchPages from to 0 Nothing) searches
 
   where
 
-    fetchMovementsTable' :: Day -> Int -> C.ClientM [Movement]
-    fetchMovementsTable' today ix = do
+    -- Fetch all pages of one search, starting at page 'ix'
+    fetchPages :: Day -> Day -> Int -> Maybe [Movement] -> C.ClientM [Movement]
+    fetchPages from to ix prev = do
 
       -- Get movements using set cookies
-      (mvs, hasNext) <- getMovements (mrf today ix)
+      (mvs, hasNext) <- getMovements (MovementsRequest from to ix)
 
+      -- Stop if the bank sends the same page again rather than repeating movements
+      if Just mvs == prev then return []
       -- If a next page is available, recurse
-      if hasNext then (mvs <>) <$> fetchMovementsTable' today (ix + 1)
-                 else return mvs
-
-    mrf :: Day -> Int -> MovementsRequest
-    mrf today = MovementsRequest (addDays (-daysBack) today) today
+      else if hasNext then (mvs <>) <$> fetchPages from to (ix + 1) (Just mvs)
+      else return mvs
 
 -- * ActivoBank API
 
@@ -212,8 +219,10 @@ instance MimeUnrender HTML ([Movement], Bool) where
                    date <- parseTimeM False undefined "%d/%m/%0Y" (stripUnpack dateStr)
 
                    pure $ Mov date (stripUnpack desc) (moneyToDouble $ stripUnpack amount) (moneyToDouble $ stripUnpack bal)
-        aNextPageVal <- attr "value" ("input" @: ["id" @= "ctl02_hdnHasNextPage"])
-        let hasNextPage = aNextPageVal /= "0"
+        -- Like the site's own JS: there is a next page only if the value is "1"
+        -- (the value attribute is sometimes missing or empty)
+        aNextPageVal <- attr "value" ("input" @: ["id" @= "ctl02_hdnHasNextPage"]) <|> pure ""
+        let hasNextPage = aNextPageVal == "1"
         pure (mov, hasNextPage)
 
 -- ** How to encode a user
