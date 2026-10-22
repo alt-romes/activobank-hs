@@ -116,7 +116,7 @@ executable hledger-activobank
                       time, Decimal,
                       servant-client-core,
                       directory, filepath, bytestring,
-                      optparse-applicative
+                      optparse-applicative, transformers
 
     -- Directories containing source files.
     hs-source-dirs:   app

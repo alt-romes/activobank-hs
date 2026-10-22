@@ -4,11 +4,12 @@
 {-# LANGUAGE DataKinds #-}
 
 import Options.Applicative
-import qualified Data.List.NonEmpty as NE
 import Debug.Trace (trace, traceShow)
 import Data.Either
 import Data.Decimal
 import Data.Time.Calendar
+import Data.Time.Format
+import Control.Monad.Trans.Except (runExceptT)
 import qualified Data.ByteString.Lazy as BS
 import qualified Data.Text.IO as T
 import qualified Data.Text.Encoding as T
@@ -24,22 +25,20 @@ import Control.Exception
 
 import Control.Events hiding (Rules(..))
 import Hledger
+import Hledger.Read.RulesReader (readRules, readJournalFromCsv)
 
 import ActivoBank
-
--- | A mapping from a query on transaction to the account
--- associated with the transaction (on the other end)
-type Rules = [(Query,AccountName)]
 
 --------------------------------------------
 
 -- | Runs daily, so the next run is expected within 25h.
-scrapeActivoBank :: Integer {-^ Fetch movements from X days back to now-} -> Rules -> [Int] -> String -> String -> String -> IO ()
-scrapeActivoBank daysBack rules codes user fingerprint browserI =
+scrapeActivoBank :: Integer {-^ Fetch movements from X days back to now-} -> [Int] -> String -> String -> String -> IO ()
+scrapeActivoBank daysBack codes user fingerprint browserI =
   withConn (script <> "finances") $ \c ->
   event c "hledger-activobank" (simple ("hledger-activobank -d " ++ show daysBack) & evtExpected ?~ 25 * 3600) $ \ev -> do
 
     journal <- defaultJournal
+    rules <- either fail pure =<< runExceptT (readRules (takeDirectory (journalFilePath journal) </> "activobank.rules"))
 
     mvs <- event c "fetch-movements" (simple "Fetch movements table" & scoped ?~ ev) $ \_ -> do
 
@@ -59,7 +58,8 @@ scrapeActivoBank daysBack rules codes user fingerprint browserI =
       Right movements -> do
 
         -- Add movements to HLedger if they are new
-        let newTransactions = foldl (insertIfNew journal rules) [] movements
+        newTransactions <- either fail (pure . map (styleAmounts (journalCommodityStyles journal)) . jtxns)
+          =<< runExceptT (readJournalFromCsv rules "(activobank-hs-scraper)" (movementsCsv (reverse (filter (isNew journal) movements))) Nothing)
 
         mapM_ (T.putStr . showTransaction) newTransactions
         mapM_ (T.appendFile (journalFilePath journal) . showTransaction) newTransactions
@@ -68,33 +68,26 @@ scrapeActivoBank daysBack rules codes user fingerprint browserI =
 
 --------------------------------------------
 
-insertIfNew :: Journal -> Rules -> [Transaction] -> Movement -> [Transaction]
-insertIfNew journal rules acc mov@(Mov day (fromString -> dd) amt _bal) =
+isNew :: Journal -> Movement -> Bool
+isNew journal (Mov day (fromString -> dd) amt _bal) =
   case journalLastDay False{-primary date-} journal of
-    Just lastDay
-      -- Only add transactions from last day in the journal
-      | lastDay <= day
-      -- and only if there does not exist a similar transaction with the same amount
-      , null $
-          journalTransactionsSimilarTo journal dd
-            (And [ Date $ DateSpan (Just (Exact day)) (Just (Exact (addDays 1 day)))
-                 , Amt Eq (realFracToDecimal 2 amt)
-                 ]) 0.8 1
-      -> toTransaction rules mov:acc
-    _ -> acc
+    -- Only add transactions from last day in the journal
+    -- and only if there does not exist a similar transaction with the same amount
+    Just lastDay -> lastDay <= day && null
+      (journalTransactionsSimilarTo journal dd
+        (And [ Date $ DateSpan (Just (Exact day)) (Just (Exact (addDays 1 day)))
+             , Amt Eq (realFracToDecimal 2 amt)
+             ]) 0.8 1)
+    Nothing -> False
 
-toTransaction :: Rules -> Movement -> Transaction
-toTransaction rules (Mov day dd (realFracToDecimal 2 -> amt) (realFracToDecimal 2 -> bal)) =
-  (transaction day [abPost, otherPost]) { tdescription = fromString ("* " <> dd) }
-    where
-      abPost = post' "Assets:Checking:ActivoBank" (mkEurAmt amt) (balassert (mkEurAmt bal))
-      tmpTransaction = (transaction day [abPost]) { tdescription = fromString dd }
-      otherPost = post (case NE.nonEmpty (filter ((`matchesTransaction` tmpTransaction) . fst) rules) of
-                          Just ((_,acc) NE.:| _) -> acc
-                          Nothing -> if amt > 0 then "Income:TODO" else "Expenses:TODO")
-                    $ mkEurAmt (-amt)
-      mkEurAmt x = Amount "€" x eurstyle Nothing Nothing
-      eurstyle = amountstyle{ascommodityside=R,asprecision=NaturalPrecision}
+-- | Movements in the CSV format expected by activobank.rules
+movementsCsv :: [Movement] -> T.Text
+movementsCsv ms = T.unlines $ "date;value_date;description;amount;balance" : map row ms
+  where
+    row (Mov day desc amt bal) = T.intercalate ";" [d, d, quote desc, money amt, money bal]
+      where d = T.pack (formatTime defaultTimeLocale "%d/%m/%Y" day)
+    quote s = "\"" <> T.replace "\"" "\"\"" (T.pack s) <> "\""
+    money = T.replace "." "," . T.pack . show . realFracToDecimal 2
 
 --------------------------------------------
 
@@ -121,8 +114,6 @@ main = do
   -- the login requests, but DO IT IN A PRIVATE SESSION, TO MAKE SURE
   -- CACHE/COOKIES ARE CLEAN, or otherwise fingerprint shows up empty
   [map digitToInt -> codes, user, fingerprint, browserI] <- lines <$> readFile (xdgConfigDir </> ".activobank.secret")
-  rules <- map ((\(qstr, acc) -> (either error fst (parseQuery nulldate qstr), T.drop 4 acc)) . T.breakOn "==> ")
-              . T.lines <$> T.readFile (xdgConfigDir </> "rules.txt")            -- Match ^ characters, ==> and the space afterwards
 
-  scrapeActivoBank daysBack rules codes user fingerprint browserI
+  scrapeActivoBank daysBack codes user fingerprint browserI
 
